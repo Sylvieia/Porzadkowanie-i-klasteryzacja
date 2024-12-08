@@ -1,0 +1,1091 @@
+---
+title: "Analiza niewypłacalności klientów"
+output: html_document
+author: "Sylvia Romek, IiE nst, 418348"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Wstęp
+
+Celem jest porządkowanie klientów według największego prawdopodobieństwa niewypłacalności i pogrupowanie klientów o podobnych cechach, aby dowiedzieć się, jaki typ klienta determinuje niewywiązanie się z płatności kartą kredytową. Niewywiązanie się z płatności kartą kredytową, zwane inaczej opóźnieniem w spłacie, ma miejsce, gdy posiadacz karty nie spłaci minimalnej wymaganej kwoty lub pełnego zadłużenia do terminu określonego przez bank. W 2005 roku w Tajwanie, podobnie jak w wielu innych krajach, niewywiązanie się z płatności kartą kredytową zaczęło być poważnym problemem. Tajwan doświadczył kryzysu kredytowego związanego z nadmiernym zadłużaniem się konsumentów na kartach kredytowych i kartach debetowych. Był to okres, w którym korzystanie z kart kredytowych w kraju gwałtownie rosło, a wielu ludzi zadłużało się ponad swoje możliwości spłaty.
+
+Przedstawione zostaną różne metody porządkowania i analizy skupień, aby zbadać różne sposoby na wysnucie wniosków, a także spróbować osiągnąć konsensus.
+
+# Środowisko
+
+Analizę wstępną przeprowadzono w większości przy użyciu MS Excel, a szczegółową w środowisku R, wykorzystując biblioteki:
+
+``` r
+library(readxl)
+library(stats)
+library(ggplot2)
+library(cluster)
+library(clusterCrit)
+library(vcd)
+library(DT)
+```
+
+# Przedstawienie danych
+
+Zestaw danych to "Default of credit card customers" z repozytorium uczenia maszynowego UCI, dostępnego pod następującym [linkiem](https://archive.ics.uci.edu/dataset/350/default+of+credit+card+clients). Zawiera 30 000 obserwacji, które reprezentują odrębnych klientów kart kredytowych. Każda obserwacja ma 24 atrybuty , które zawierają informacje o domyślnych płatnościach, czynnikach demograficznych, danych kredytowych, historii płatności i wyciągach z rachunków klientów kart kredytowych na Tajwanie od kwietnia 2005 r. do września 2005 r.
+
+Pierwsza grupa zmiennych zawiera informacje o danych osobowych klienta :
+
+-   **ID**:ID każdego klienta, zmienna kategoryczna
+-   **LIMIT_BAL**:Kwota przyznanego kredytu w dolarach NT
+-   **SEX**:Płeć, zmienna kategorialna (1=mężczyzna, 2=kobieta) (ta zmienna w tym projekcie nie została uwzględniona)
+-   **EDUCATION**:poziom wykształcenia, zmienna kategorialna (1=szkoła podyplomowa, 2=uniwersytet, 3=szkoła średnia, 4=inne, 5=nieznane, 6=nieznane)
+-   **MARRIAGE**:Stan cywilny, zmienna kategorialna (1=żonaty, 2=singiel, 3=inne)
+-   **AGE**:Wiek w latach, zmienna liczbowa
+
+Poniższe atrybuty zawierają informacje o opóźnieniu płatności w danym miesiącu:
+
+-   **PAY_0**:Status spłaty we wrześniu 2005 r. (-1=należy zapłacić, 1=opóźnienie w spłacie o jeden miesiąc, 2=opóźnienie w spłacie o dwa miesiące, … 8=opóźnienie w spłacie o osiem miesięcy, 9=opóźnienie w spłacie o dziewięć miesięcy i więcej)
+-   PAY_2:Status spłaty w sierpniu 2005 r. (taka sama skala jak poprzednio)
+-   PAY_3:Status spłaty w lipcu 2005 r. (ta sama skala co poprzednio)
+-   PAY_4:Status spłaty w czerwcu 2005 r. (ta sama skala co poprzednio)
+-   PAY_5:Status spłaty w maju 2005 r. (taka sama skala jak poprzednio)
+-   PAY_6:Status spłaty w kwietniu 2005 r. (taka sama skala jak poprzednio)
+
+**Z powyższych zmiennych do projektu została uwzględniona tylko PAY_0, ze względu na najwyższą korelację z default_payment_next_month**
+
+Inne zmienne biorą natomiast pod uwagę informacje związane z kwotą rachunku (czyli miesięcznym raportem, który firmy obsługujące karty kredytowe wydają posiadaczom kart kredytowych w danym miesiącu):
+
+-   BILL_AMT1:Kwota rachunku we wrześniu 2005 r. (dolar NT)
+-   BILL_AMT2:Kwota rachunku w sierpniu 2005 r. (dolar NT)
+-   BILL_AMT3:Kwota rachunku w lipcu 2005 r. (dolar NT)
+-   BILL_AMT4:Kwota rachunku w czerwcu 2005 r. (dolar NT)
+-   BILL_AMT5:Kwota rachunku w maju 2005 r. (dolar NT)
+-   BILL_AMT6:Kwota rachunku w kwietniu 2005 r. (dolar NT)
+
+**Powyższe zmienne zostały uwzględnione do projektu jako nowa zmienna - średnia z kwot rachunków od 04.2005 do 09.2005 pod nazwą BILL_MEAN**
+
+Poniższe zmienne uwzględniają natomiast kwotę poprzedniej płatności w danym miesiącu:
+
+-   PAY_AMT1:Kwota poprzedniej płatności we wrześniu 2005 r. (dolar NT)
+-   PAY_AMT2:Kwota poprzedniej płatności w sierpniu 2005 r. (dolar NT)
+-   PAY_AMT3:Kwota poprzedniej płatności w lipcu 2005 r. (dolar NT)
+-   PAY_AMT4:Kwota poprzedniej płatności w czerwcu 2005 r. (dolar NT)
+-   PAY_AMT5:Kwota poprzedniej płatności w maju 2005 r. (dolar NT)
+-   PAY_AMT6:Kwota poprzedniej płatności w kwietniu 2005 r. (dolar NT)
+
+**Powyższe zmienne zostały uwzględnione do projektu jako nowa zmienna - średnia z kwot z poprzedniej płatności od 04.2005 do 09.2005 pod nazwą PAY_MEAN**
+
+Ostatnia zmienna to:
+
+-   default.payment.next.month: wskaż, czy posiadacze kart kredytowych są osobami uchylającymi się od spłat czy nie (1=tak, 0=nie)
+
+*Nie jest brana w obliczeniach, pełni funkcję odniesienia i weryfikacji do otrzymanych wyników.*
+
+**Dodatkowo wybrane obserwacje zostały dodatkowo wyselekcjonowane, biorąc pod uwagę tylko te cechy, które są uwzględnione w dokumentacji. Oto następujące filtracje wierszy:**
+
+-   w kolumnie MARRIAGE usunięcie wartości 0
+-   w kolumnach PAY_1, PAY_2 itd usunięcie wartości -2 i 0
+-   w kolumnie EDUCATION usunięcie wartości 0, 5, 6
+
+**Po tych zabiegach zostało 4031 wierszy, a w niniejszym projekcie uwzględniono 50 pierwszych obserwacji.**
+
+Podgląd 5 pierwszych obserwacji:
+
+```{r echo = FALSE}
+library(readxl)
+library(ggplot2)
+library(cluster)
+library(clusterCrit)
+library(flextable)
+
+
+dane_podst <- read_excel("edited_default_clients.xlsx")
+dane_podst_5 <- head(dane_podst, 5)
+ft <- flextable(dane_podst_5)
+ft
+```
+
+# Wstępna analiza
+
+## Podstawowe informacje o zbiorze danych:
+
+![](stat.png)
+
+Zwróćmy uwagę, że średni przyznany kredyt wynosi 184 400 \$ NT, średni wiek to 37 lat, średni rachunek w badanym okresie to 23 846 \$ NT przy czym średnia spłata to 6196,54 \$ NT, co oznacza, że **poziom wypłacalności przez klientów jest bardzo niski**. Analizując medianę w tym samym okresie, wynosi ona dla
+
+-   rachunku: 6838 \$ NT,
+-   płatności: 2358 \$ NT
+
+i **potwierdza** ona, że jest duży problem ze spłatami zobowiązań. WSpółczynnik zmienności dla wszytskich zmiennych spełnia warunek \>10%, aby brać te zmienne pod uwagę w dalszej analizie.
+
+Głównym celem jest opis struktury klientów i klasyfikacja wedlug klientów z największym prawdopodobieństwem utraty płynności spłacania zobowiązania, dlatego spojrzmy na przewidywana płatność w następnym miesiącu (zmienna "default_payment_next_month"), która kształtuje się następująco:
+
+```{r echo=FALSE, out.width="60%"}
+# Zliczenie liczby klientów z domyślną płatnością 0 i 1
+liczba_klientow <- table(dane_podst$`default payment next month`)
+
+# Przekształcenie do ramki danych dla ggplot
+liczba_klientow_df <- as.data.frame(liczba_klientow)
+colnames(liczba_klientow_df) <- c("Default_Payment", "Liczba_Klientow")
+ggplot(liczba_klientow_df, aes(x = factor(Default_Payment), y = Liczba_Klientow, fill = factor(Default_Payment))) +
+  geom_col() +
+  geom_text(aes(label = Liczba_Klientow), 
+            vjust = -0.5,    # Ustawienie etykiety powyżej słupka
+            size = 5) +      
+  labs(x = "default_payment_next_month", 
+       y = "Liczba klientów") +
+  scale_fill_manual(values = c("blue", "red"), labels = c("Spłata", "Brak spłaty")) +
+  theme_minimal()
+
+```
+
+Jak widać, 15 z 50 (30%) klientów nie wykona spłaty w następnym miesiącu(kat. 1).
+
+```{r echo = FALSE}
+
+library(ggplot2)
+
+
+
+# Tworzenie wykresu gęstości 
+ggplot(dane_podst, aes(x = AGE, fill = factor(`default payment next month`))) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Wykres gęstości dla AGE wg default payment next month",
+       x = "AGE",
+       y = "Gęstośc",
+       fill = "") +
+  scale_fill_manual(values = c("orange", "lightgreen"), 
+                    labels = c("Niewypłacalni", "Wypłacalni")) +
+  theme_minimal()
+```
+
+Zdecydowanie można swierdzić, że im młodszy klient, tym większe prawdopodobieństwo niewypłacalności - jest ponad dwukrotnie wyższe dla wieku 30 niż w wieku 50 lat.
+
+```{r echo = FALSE}
+
+library(ggplot2)
+
+
+# Tworzenie wykresu gęstości 
+ggplot(dane_podst, aes(x = LIMIT_BAL, fill = factor(`EDUCATION`))) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Wykres gęstości dla LIMIT_BAL wg EDUCATION",
+       x = "LIMIT_BAL",
+       y = "Gęstośc",
+       fill = "Defaulters") +
+  scale_fill_manual(values = c("yellow","blue", "red"), 
+                    labels = c("graduate school", "university", "high school")) +
+  theme_minimal()
+```
+
+Podany wykres przedstawia, że osoby z wykształceniem średnim mają przyznany niski kredyt i takich osób jest najwięcej w zbiorze. Największe przyznane kredyty są u osób po uzyskaniu tytułu studiów 1 stopnia.
+
+## Korelacja
+
+Brak silnej korelacji między zmiennymi (\>0,7). Największe zależności występują pomiędzy EDUCATION a pozostałymi zmiennymi.
+
+![](kor.png)
+
+## Wykres pudełkowy
+
+![](wykres_pudełkowy.png){width:30%}
+
+Zatem obserwacje odstające zostają usunięte zgodnie z regułą trzech sigm:
+
+```{r}
+set.seed(123)
+dane_podst <- read_excel("edited_default_clients.xlsx")
+# Funkcja usuwająca obserwacje odstające na podstawie reguły 3 sigm
+ usun_odstajace <- function(df) {
+  # Dla każdej kolumny liczenie średniej i odchylenia standardowego
+  for (col in colnames(df)) {
+    mean_col <- mean(df[[col]], na.rm = TRUE)  # średnia dla kolumny
+    sd_col <- sd(df[[col]], na.rm = TRUE)      # odchylenie standardowe dla kolumny
+    
+    # Filtrowanie dane, usuwając wartości poza zakresem (średnia ± 3 * odchylenie standardowe)
+    df <- df[abs(df[[col]] - mean_col) <= 3 * sd_col, ]
+  }
+  return(df)
+}
+
+# Usunięcie wierszy z wartościami odstającymi
+dane_bez_odstajacych <- usun_odstajace(dane_podst)
+
+# Porównanie liczby wierszy przed i po usunięciu odstających obserwacji
+nrow(dane_podst)           # Liczba wierszy przed usunięciem odstających obserwacji
+nrow(dane_bez_odstajacych)  # Liczba wierszy po usunięciu odstających obserwacji
+
+```
+
+Po usunieciu zostało 48 obserwacji.
+
+# Porządkowanie liniowe
+
+## Wstęp:
+
+Przeprowadzona analiza miała na celu uporządkowanie danych w sposób liniowy (stworzenie rankingu) osób potecjalnie zagrożonych niewypłacalnością przy użyciu różnych metod porządkowania, aby zidentyfikować. Zastosowano 4 metody: metodę standaryzowanych sum, metodę sumy rang, metodę Hellwiga i TOPSIS.
+
+Dane zostały porządkowane według klientów (zmienna "ID") z malejącym prawdopodobieństwem niewypłacalności
+
+## Przygotowanie danych (zgodnie z schematem):
+
+1.  **Przyjmuję, że stymulanty to:**
+
+-   PAY_0
+-   LIMIT_BAL
+-   BILL_MEAN
+
+Destymulanty:
+
+-   EDUCATION
+-   AGE
+-   MARRIAGE
+-   PAY_MEAN
+
+Brak nominant.
+
+```{r}
+dane<-dane_bez_odstajacych
+# Zamiana destymulanty na stymulantę
+dane$EDUCATION <- -1 * dane$EDUCATION
+dane$AGE <- -1 * dane$AGE
+dane$MARRIAGE <- -1 * dane$MARRIAGE
+dane$PAY_MEAN <- -1 * dane$PAY_MEAN
+```
+
+2.  **Dokonywanie standaryzacji:**
+
+```{r echo = FALSE}
+# Wybór kolumn do standaryzacji
+kolumny_do_standaryzacji <- c("EDUCATION", "AGE", "MARRIAGE", "PAY_MEAN", "PAY_0", "LIMIT_BAL", "BILL_MEAN")
+
+dane_st <- dane  # KOPIA ramki danych, aby zachować oryginał
+dane_st[kolumny_do_standaryzacji] <- scale(dane_st[kolumny_do_standaryzacji])
+summary(dane_st)
+```
+
+# Metody porządkowania
+
+## 1. Metoda standaryzowanych sum (bezwzorcowa)
+
+***Opis:*** Po odpowiednim przygotowaniu danych (krok wyżej), zostaje obliczona średnia ważona dla poszczególnego klienta, następnie standaryzowane są wartości w oparciu o najmniejszą i największą wartość. Ostatecznie klienci są posortowani od "najgorszego" do "najlepszego" w kontekście wypłacalności.
+
+***Zaiplementowanie:***
+
+### **Próba 1 - Nadanie wag wg regresji (y-"default payment next month"):**
+
+![](regr.png)
+
+[**Analizując regresję, tylko zmienna PAY_0 ma istotnie statyczny wpływ na y - "default payment next month", dlatego wagi zostały nadane według korelacji, a następnie zgodnie z nią znormalizowane na podstawie zmiennej "default payment next month". W ten sposób suma wag wynosi 1.**]{.underline}
+
+### **Próba 2 - Nadanie wag wg korelacji z "default payment next month":**
+
+```{r}
+# Obliczanie korelacji zmiennych (z zmienna "default")
+korelacje <- cor(dane_st[, c("LIMIT_BAL", "EDUCATION", "MARRIAGE", "AGE", "PAY_0", "BILL_MEAN", "PAY_MEAN")], dane_st$"default payment next month")
+
+# Przekształcanie korelacji na wagi (np. przez normalizację wartości absolutnych)
+wagi <- abs(korelacje) / sum(abs(korelacje))
+wagi
+```
+
+```{r echo=FALSE}
+
+# Przypisanie zmiennej ID typu tekstowego
+dane_st$ID <- as.character(dane_st$ID)
+
+# Obliczanie standaryzowanej sumy dla każdej obserwacji oprócz kolumn ID i default payment
+dane_st$standaryzowana_suma <- rowSums(dane_st[, c("LIMIT_BAL", "EDUCATION","MARRIAGE", "AGE", "PAY_0",  "BILL_MEAN", "PAY_MEAN")] * wagi)
+
+
+# Liczba zmiennych
+m <- 7  # Liczba zmiennych, które są uwzględnione w wagach
+
+# Obliczanie średniej ważonej (suma ważona / liczba zmiennych)
+dane_st$srednia_wazona <- dane_st$standaryzowana_suma / m
+
+# Normalizacja wyniku w przedziale [0, 1]
+min_srednia <- min(dane_st$srednia_wazona)
+max_srednia <- max(dane_st$srednia_wazona)
+
+# Przesunięcie syntetycznego wskaźnika w przedział [0, 1]
+dane_st$stand_suma <- (dane_st$srednia_wazona - min_srednia) / (max_srednia - min_srednia)
+
+# Sortowanie wyników
+srednia_wazona <- data.frame(ID = dane_st$ID,
+                             stand_suma = dane_st$stand_suma)
+
+# Sortowanie i zaokrąglanie wyników
+srednia_wazona <- srednia_wazona[order(srednia_wazona$stand_suma, decreasing = TRUE), ]
+print(srednia_wazona)
+dane_st$standaryzowana_suma<-NULL
+dane_st$srednia_wazona<-NULL
+
+```
+
+\
+
+#### Wyniki i wnioski próba 2:
+
+Przyjrzenie się top 10:
+
+![](st_suma_wagi_kor.png) Na czerwono są wiersze, które faktycznie powinny byc sklasyfikowane jak najwyżej, ale jest to 50% z rankingowanych top 10, w zbiorze danych znajdują sie klienci, którzy zdecydowanie powinni być na wyższym miejscu. Reszta klientów została sklasyfikowana ze względu na miskie wartości pay_mean i bill_mean w stosunku do wysokiego limit_bal.
+
+Zmienna weryfikująca (default payment next year) ma sumę 3, co oznacza że 3 osoby wśrod przedstawionych wyżej będą niewypłacalne w przyszłym miesiącu, zatem odrzucam ten sposób.
+
+### **Próba 3 - Nadanie wag na podstawie analizy głównych składowych (PCA)**
+
+WAGI:
+
+```{r echo  = FALSE}
+# Wykonanie PCA
+pca <- prcomp(dane_st[, c("LIMIT_BAL", "EDUCATION", "MARRIAGE", "AGE", "PAY_0", "BILL_MEAN", "PAY_MEAN")], scale = TRUE)
+
+# Przypisanie wag na podstawie wartości własnych pierwszej głównej składowej
+wagi <- abs(pca$rotation[, 1])
+
+# Normalizacja wag, aby ich suma wynosiła 1
+wagi <- wagi / sum(wagi)
+
+# Wyświetlenie wag
+print(wagi)
+
+```
+
+Uporządkowanie:
+
+```{r echo=FALSE}
+
+# Przypisanie zmiennej ID typu tekstowego
+dane_st$ID <- as.character(dane_st$ID)
+
+# Obliczanie standaryzowanej sumy dla każdej obserwacji oprócz kolumn ID i default payment
+dane_st$standaryzowana_suma <- rowSums(dane_st[, c("LIMIT_BAL", "EDUCATION","MARRIAGE", "AGE", "PAY_0",  "BILL_MEAN", "PAY_MEAN")] * wagi)
+
+
+# Liczba zmiennych
+m <- 7  # Liczba zmiennych, które są uwzględnione w wagach
+
+# Obliczanie średniej ważonej (suma ważona / liczba zmiennych)
+dane_st$srednia_wazona <- dane_st$standaryzowana_suma / m
+
+# Normalizacja wyniku w przedziale [0, 1]
+min_srednia <- min(dane_st$srednia_wazona)
+max_srednia <- max(dane_st$srednia_wazona)
+
+# Przesunięcie syntetycznego wskaźnika w przedział [0, 1]
+dane_st$stand_suma <- (dane_st$srednia_wazona - min_srednia) / (max_srednia - min_srednia)
+
+# Sortowanie wyników
+srednia_wazona <- data.frame(ID = dane_st$ID,
+                             stand_suma = dane_st$stand_suma)
+
+# Sortowanie i zaokrąglanie wyników
+srednia_wazona <- srednia_wazona[order(srednia_wazona$stand_suma, decreasing = TRUE), ]
+print(srednia_wazona)
+dane_st$standaryzowana_suma<-NULL
+dane_st$srednia_wazona<-NULL
+
+```
+
+#### Wyniki i wnioski próba 3:
+
+Przyjrzenie się top 10:
+
+![](wagi_pca.png)
+
+Analizując 10 pierwszych najgorszych klientów, wyniki na pierwszy rzut oka są trafne. Oprócz klientów z drastycznymi różnicami między rachunkiem a zapłatą i spóznieniem z płatnością, znalazła się dwójka klientów zalegających z zapłatą. Początkowo wygladają niegroźnie, gdyż są podobne wartości w BILL_MEAN i PAY_MEAN, lecz ich kwota kredytu jest bardzo wysoka w stosunkiu do spłat. Uwzględniając ich 2-miesięczne opóznienie ze spłatą, jak najbardziej powinni się znaleźć wysoko w rankingu.
+
+-   Przewidywana liczba osób, którzy osiągną niewypłacalność w następnym miesiącu wśród tych klientów wynosi 6 (na podstawie zmiennej default_next_payment).
+
+<!-- -->
+
+-   60% z nich ma najniższe wykształcenie.
+
+-   Większość osób ma ponad 30 lat.
+
+-   Średnia przyznanego kredytu wynosi 233 000\$
+
+![](wagi_pca2.png) Przyglądając się dalszym danym - kolejne 10 klientów (bez zachowania kolejności), także wydają się rozsądnie przyporządkowane.
+
+-   Widać tendencje, że płacą na czas (80% osób)
+
+-   60% znich ma najniższe wykształcenie
+
+-   Średnia przyznanego kredytu wynosi 177 000\$
+
+![](wagi_pca3.png) Powyżej jest 10 klientów "najlepszych", czyli potencjalnie najmniej ryzykownych pod względem niewypłacalności.
+
+-   Widać, że wysokośc kredytów jest niższa, ostatnia płatnośc w większości na czas, podobne średnie rachunki i płatności.
+
+-   80% z nich nie jest singlami.
+
+-   Średnia przyznanych kredytów wynosi 150 000\$
+
+## Próba 4 - bez wag
+
+Wyniki:
+
+```{r echo=FALSE}
+
+# Przypisanie zmiennej ID typu tekstowego
+dane_st$ID <- as.character(dane_st$ID)
+
+# Obliczanie standaryzowanej sumy dla każdej obserwacji oprócz kolumn ID i default payment
+dane_st$standaryzowana_suma <- rowSums(dane_st[, c("LIMIT_BAL", "EDUCATION","MARRIAGE", "AGE", "PAY_0",  "BILL_MEAN", "PAY_MEAN")])
+
+
+# Liczba zmiennych
+m <- 7  # Liczba zmiennych, które są uwzględnione w wagach
+
+# Obliczanie średniej ważonej (suma ważona / liczba zmiennych)
+dane_st$srednia_wazona <- dane_st$standaryzowana_suma / m
+
+# Normalizacja wyniku w przedziale [0, 1]
+min_srednia <- min(dane_st$srednia_wazona)
+max_srednia <- max(dane_st$srednia_wazona)
+
+# Przesunięcie syntetycznego wskaźnika w przedział [0, 1]
+dane_st$stand_suma <- (dane_st$srednia_wazona - min_srednia) / (max_srednia - min_srednia)
+
+# Sortowanie wyników
+srednia_wazona <- data.frame(ID = dane_st$ID,
+                             stand_suma = dane_st$stand_suma)
+
+# Sortowanie i zaokrąglanie wyników
+srednia_wazona <- srednia_wazona[order(srednia_wazona$stand_suma, decreasing = TRUE), ]
+print(srednia_wazona)
+dane_st$standaryzowana_suma<-NULL
+dane_st$srednia_wazona<-NULL
+
+
+```
+
+![](bez_wag.png) Powyżej 10 najgorszych klientów
+
+**Jak widać, brak zastosowania wag daje bardzo zbliżone wyniki do wag nadanych poprzez PCA.** Metoda z PCA wydaje się być mniej wrażliwa na LIMIT_BAL, a bardziej wrażliwa na BILL_MEAN niż obliczanie bez nadanych wag.
+
+\*Przewidywana liczba osób, którzy osiągną niewypłacalność w następnym miesiącu wśród tych klientów wynosi 6 (na podstawie zmiennej default_next_payment).
+
+### **Podsumowanie**
+
+W wybranym zbiorze danych przy metodzie standaryzowanych sum nadanie wag zmiennym okazało się zbędne, być może ze względu na przewagę zmiennych kategorycznych o wąskich zakresach. Metoda ta, dobrze sprawdziła się w porządkowaniu danych z tyloma zmiennymi.
+
+Widać, kluczowych pięciu klientów (ID: 113, 330, 277, 91 i 72) z najwyższym ryzykiem niewypłacenia (\>0,8) w stosunku do obecnych danych. Reszta klientów również jest przyporządkowana akceptowalnie. Minus tej metody jest taki, że nie uwzględniamy korelacji między zmiennymi, przez co końcowy wynik może wychodzić zakłamany. Także cięzko jest dobrać odpowiednio wagi, trzeba szukać metody i jest to subiektywne.
+
+Jest tendencja, że u klientów, którzy zaciagąją wyższy kredyt, są singlami i mają niski stopień edukacji wzrasta potencjał niewypłacalności.
+
+Klienci z najniższym potencjałem wypłacalności płacą na czas i nie są singlami.
+
+## 2. Metoda sumy rang (bezwzorcowa)
+
+***Opis:*** Po odpowiednim przygotowaniu danych, zostają obliczone rangi dla każdej zmiennej z osobna a następnie rangi zostają sumowane. Najniższej wartości (najgorszej dla stymulant) przypisuje się wartośc 1 itd aż do najwyższej wartości, która otrzyma najwyższą rangę. Klient z najwyższą sumą rang, interpretowany jest jako, ten, który posiada najwiękze predyspozycje do niewypłacalności. Wyniki są przedstawione od "najgorszego" klienta do "najlepszego". Nie zastosowano wag, aby wyniki były porównywalne z innymi metodami
+
+```{r echo = FALSE}
+# Obliczanie rang dla każdej zmiennej oprócz ID i default payment
+#Oblicza rangi dla każdej zmiennej w ramce danych sum, z pominięciem wartości NA.
+rangi <- as.data.frame(lapply(dane_st[, 2:(ncol(dane_st) - 1)], rank, na.last = "keep"))
+# Nadanie nazw rangom
+colnames(rangi) <- paste0("rang_", colnames(rangi))
+
+# Obliczanie sumy rang dla każdej obserwacji
+dane_st$ranga_suma <- rowSums(rangi)
+
+# Sortowanie wyników
+suma_rang <- data.frame(ID = dane_st$ID,
+                        suma_rang = dane_st$ranga_suma)
+
+suma_rang <- suma_rang[order(suma_rang$suma_rang, decreasing = TRUE), ]
+
+# Wyświetlenie wyników
+cat("Wyniki metody suma rang:\n")
+print(suma_rang)
+
+# Sortowanie według stand_suma w porządku malejącym
+sorted_data <- dane_st[order(-dane_st$stand_suma), ]
+
+# Wyświetlenie trzech kolumn obok siebie: ID, stand_suma i inna kolumna (np. LIMIT_BAL)
+result <- sorted_data[, c("ID", "stand_suma", "ranga_suma")]
+
+# Wyświetlenie wyniku
+print(result)
+```
+
+Porównując do metody poprzedniej pierwszych "najgorszych" 9 klientów jest takich samych, różnią się, ale jednak są w czołówce. Analizując kolejną dziesiątke w zestawieniu, to tylko dwóch klientów pokrywa się (są obecni od 10 do 20 miejsca w metodzie standaryzowanych sum)
+
+![](rangi1.png) Analizując dane od najmniejszej sumy rang, czyli od najlepszych klientów, faktycznie wszyscy ostatnią płatnośc zapłacili na czas, zmienna default_payment_next_month wynosi 0, czyli przewiduje, że wszyscy w następnym miesiącu zapłacą. 90% z nich ma więcej niż 34 lata. Średnia kredytu wynosi 124 000\$. Tą metodą uporządkowanie jest lepiej dostosowane dla 10 najlepszych klientów od poprzedniej metody.
+
+W tej metodzie rozkład klientów z pewnymi cechami pokrywa się z poprzednią metodą tj tendencja, że klienci z najmniejszym potencjałem ryzyka niewypłacalności mają niższe kredyty i spłacają zobowiązania na czas.
+
+\*Minus tej metody to taki, że ciężko ocenić na pierwszy rzut oka, co znaczy ta suma rang dla poszczególnego klienta bez kontekstu innych, jaki wynik jest najwyższy, a jaki najniższy. Brakuje konktekstu do czego porównywać, jaki jest zakres. W tym przypadku ze względu na 7 zmiennych i 48 obiektów, to najwyższa waga wynosi 336, najniższa 7. Nie pokazuje tak dobrze odległości między "miejscami" w rankingu.
+
+## 3. Metoda Hellwiga (wzorcowa)
+
+***Opis:*** Po odpowiednim przygotowaniu danych, wyznaczony zostaje wzorzec na podstawie najlepszej wartości z każdej zmiennej. Jest to nowy obiekt zawierający najlepszy zestaw cech z podanych zmiennych.
+
+[W kontekście tego projektu - porządkowaniu według najbardziej zagrożonych niewypłacalnością klientów, wzorzec to fikcyjny "najgorszy" klient zawierający najwyższe wartości spośród podanego zbioru danych, z najwyższą predyspozycją do niewypłacalności.]{.underline}
+
+Nastepnie jest liczona odległość każdego klienta do wzorca, w kolejnym kroku tworzy się fikcyjnego klienta "możliwie dalekiego" od wzorca. Miara dla każdego klienta zostaje obliczona poprzez podzielenie "jego odległości od wzorca" przez fikcyjnego klienta "możliwie dalekiego" od wzorca. Aby wyniki były od wartości najwyższej oznaczającej największą bliskość do wzorca, to zostało obliczone poprzez 1- miara. Wyniki są przedstawione od "najgorszego" klienta do "najlepszego"
+
+***Wzorzec:***
+
+```{r echo = FALSE}
+
+# Ustalanie konkretnego wzorca dla wybranych kolumn
+wybrane_kolumny <- c("PAY_0", "LIMIT_BAL", "BILL_MEAN", "AGE", "MARRIAGE", "EDUCATION", "PAY_MEAN")
+wzorzec <- c(max(dane_st[,"PAY_0"]),
+             max(dane_st[,"LIMIT_BAL"]),
+             max(dane_st[,"BILL_MEAN"]),
+             max(dane_st[,"AGE"]),
+             max(dane_st[,"MARRIAGE"]),
+             max(dane_st[,"EDUCATION"]),
+             max(dane_st[,"PAY_MEAN"]))
+wzorzec
+# Obliczanie odległości od wzorca dla wybranych kolumn
+odl <- dane_st  # Tworzymy kopię zbioru danych
+
+for(i in 1:nrow(odl)) {
+  odl[i, wybrane_kolumny] <- (dane_st[i, wybrane_kolumny] - wzorzec)^2
+}
+
+# Sumowanie i pierwiastkowanie odległości
+odl$odlSuma <- sqrt(rowSums(odl[, wybrane_kolumny], na.rm = TRUE))
+
+# Wyznaczenie maksymalnej odległości możliwej
+d0 <- mean(odl$odlSuma) + 2 * sd(odl$odlSuma)
+
+# Wyznaczenie miary Hellwiga
+HELLWIG <- data.frame(ID = dane_st$ID,
+                      Hellwig = 1 - odl$odlSuma / d0)
+
+# Sortowanie wyników według miary Hellwiga w porządku rosnącym
+result <- HELLWIG[order(HELLWIG$Hellwig, decreasing = TRUE), ]  
+
+# Wyświetlenie wyników
+print(result)
+
+```
+
+Takie oto wartości przyjmuje 10 klientów potencjalnie bardziej ryzykownych pod względem niewypłacalności:
+
+![](hellwig1.png) Im bliższy jest wynik do 1, tym bardziej obserwacja przypomina wzorzec, a zatem klient ma większe ryzyko niewypłacalności. Wynik bliższy 0 oznacza, że obserwacja jest bardziej odległa od wzorca, co wskazuje na niższe ryzyko niewypłacalności.
+
+**Wnioski z przedstawionej tabeli:**
+
+-   Patrząc na przykład klienta z ID 113, który ma wynik 0.556, można powiedzieć, że jest on relatywnie bliski "ryzykownemu" wzorcowi. Klient z ID 63, z wynikiem 0.285, jest bardziej oddalony od tego wzorca, co czyni go prawdopodobnie mniej ryzykownym w ocenie kredytowej.
+
+-   50% najgorszych kredytobiorców to osoby mające 40 lat i więcej i taki sam odsetek ma niskie wykształcenie.
+
+-   Przewidywana liczba osób, którzy osiągną niewypłacalność w następnym miesiącu wśród tych klientów wynosi 5 (na podstawie zmiennej default_next_payment).
+
+-   70% klientów potencjalnie bardziej ryzykownych pod względem niewypłacalności to single i tyle samo zalega 2 miesiące z ostatnią płatnością
+
+-   Średnia przyznanego kredytu to 278 000\$
+
+## 4. Metoda TOPSIS (wzorcowa)
+
+***Opis:*** Po odpowiednim przygotowaniu danych, wyznaczony zostaje wzorzec i antywzorzec.
+
+[W kontekście tego projektu - porządkowaniu według najbardziej zagrożonych niewypłacalnością klientów, wzorzec to taki sam obiekt jak w metodzie Hellwiga, antywzorzec analogicznie fikcyjny "najlepszy" klient zawierający najniższe wartości spośród podanego zbioru danych, z najniższą predyspozycją do niewypłacalności.]{.underline}
+
+Nastepnie jest liczona odległość każdego klienta do wzorca i antywzorca, w kolejnym kroku tworzy się współczynnik rankingowy określający podobieństwo obiektów do rozwiązania idealnego**.** Wyniki są przedstawione od "najgorszego" klienta do "najlepszego".
+
+***Wyniki:***
+
+```{r echo = FALSE}
+
+dane_st_bez_id <- dane_st[, c("EDUCATION", "AGE", "MARRIAGE", "PAY_MEAN",  "PAY_0", "LIMIT_BAL", "BILL_MEAN" )]
+
+# Wyznaczenie rozwiązań idealnych i anty-idealnych
+idealne_rozwiazanie <- apply(dane_st_bez_id, 2, max)
+antyidealne_rozwiazanie <- apply(dane_st_bez_id, 2, min)
+
+# Obliczenie odległości do rozwiązań idealnych i anty-idealnych
+odleglosc_do_idealnego <- sqrt(rowSums( (dane_st_bez_id - idealne_rozwiazanie)^2))
+odleglosc_do_antyidealnego <- sqrt(rowSums( (dane_st_bez_id - antyidealne_rozwiazanie)^2))
+
+# Wyznaczenie współczynnika TOPSIS określającego podobieństwo obiektów do rozwiązania idealnego
+wspolczynnik <- odleglosc_do_antyidealnego / (odleglosc_do_idealnego + odleglosc_do_antyidealnego)
+
+# Dodanie współczynnika TOPSIS do danych
+dane_st$TOPSIS <- wspolczynnik
+
+# Sortowanie wyników według współczynnika TOPSIS w porządku malejącym
+wyniki_topsis <- dane_st[order(dane_st$TOPSIS, decreasing = TRUE), c("ID", "TOPSIS")]
+
+print(wyniki_topsis, n=Inf)
+```
+
+-   **ID 72 i 277 mają najwyższy współczynnik TOPSIS** — wskazuje to, że są najbliżej wzorca idealnego i najlepiej spełniają kryteria analizy, co oznacza, że są najbardziej skłonni do niewypłacalności
+
+-   **ID 330, 159, 113 także mają stosunkowo wysokie wartości współczynnika** — choć nie najwyższe, ci klienci również znajdują się w górnej części rankingu, wskazując na wysokie podobieństwo do wzorca idealnego, czyli także mają wysoki potencjał niewypłacalności.
+
+-   17% klientów jest najbardziej ryzykownych
+
+    Charakterystyka 10 klientów najbardziej zbliżonych do wzorca:
+
+    ![](TOPSIS.png)
+
+-   Średnia przyznanego kredytu wynosi 256 000\$
+
+-   50% z nich ma niskie wykształcenie i 70% ma niskie wykształcenie
+
+-   Tylko 30% osób ostatnią płatność opłaciło w terminie
+
+-   Przewidywana liczba osób, którzy osiągną niewypłacalność w następnym miesiącu wśród tych klientów wynosi 5 (na podstawie zmiennej default_next_payment).
+
+# **Podsumowanie i porównanie metod porządkowania**
+
+```{r echo=FALSE}
+#Połączenie wyników według ID
+wyniki_finalne <- merge(HELLWIG, srednia_wazona, by = "ID")
+wyniki_finalne <- merge(wyniki_finalne, suma_rang, by = "ID")
+wyniki_finalne <- merge(wyniki_finalne, wyniki_topsis, by = "ID")
+# Sortowanie według wyników metody Hellwiga (kolumna "Hellwig") od największej do najmniejszej
+wyniki_finalne <- wyniki_finalne[order(-wyniki_finalne$Hellwig), ]
+# Wyświetlenie finalnej tabeli wyników
+wyniki_finalne[, -1] <- round(wyniki_finalne[, -1], 2)
+
+# Wyświetlenie zaokrąglonej tabeli wyników
+print(wyniki_finalne)
+# Usuwanie kolumny ID przed obliczeniem korelacji
+korelacja <- cor(wyniki_finalne[ , -which(names(wyniki_finalne) == "ID")])
+
+# Wyświetlenie tabeli korelacji
+print(round(korelacja,2))
+```
+
+Najbardziej zbliżone wyniki do siebie dają metoda Hellwiga i standaryzowanych sum, niemniej wyniki z metody sumy rang także się pokrywają. Największe rozbieżności są pomiędzy tymi metodami a metoda TOPSIS.
+
+W tabelce niżej wszyscy klienci, którzy pojawili się w danej metodzie w top 10
+
+![](podsumowanie.png)
+
+Wyniki tych metod są spójne, ogólne dane 1 grupy klientów - zagrożonych niewypłacalnością:
+
+-   Średnie zadłuzenie to 244 286\$
+
+-   57% osób ma niskie wykształcenie , 64% jest singlami, średnia ich wieku to 40 lat, 71% ma opóźnienie w płatności,
+
+-   Średnia wartość rachunku to 51 740\$ , zapłaty 5 585\$, czyli w 10% spłacają swój rachunek
+
+Druga grupa klientów ze średnim ryzykiem ma następujące cechy:
+
+-   Średnie zadłuzenie to 172 857\$
+
+-   46% osób ma niskie wykształcenie , 39% jest singlami, średnia ich wieku to 35 lat, 25% ma opóźnienie w płatności,
+
+-   Średnia wartość rachunku to 14 706\$ , zapłaty 6 224\$, czyli w 42% spłacają swój rachunek
+
+Trzecia grupa klientów z niskim ryzykiem ma następujące cechy:
+
+![](wyplacalni.png)
+
+-   Średnie zadłuzenie to 120 000\$
+
+-   75% osób ma niskie wykształcenie , 38% jest singlami, średnia ich wieku to 40 lat, 12% ma opóźnienie w płatności,
+
+-   Średnia wartość rachunku to 7 022\$ , zapłaty 7 169\$, czyli spłacają swój rachunek
+
+## Wnioski:
+
+1.  **Wraz ze wzrostem przyznanego limitu kredytowego, wzrasta szansa na niewypłacalność klienta**
+
+2.  **Single mają wyższą tendencję do niewypłacalności**
+
+3.  **Opóźnienie w płatności ma wysoki wpływ na potencjalną niewypłacalność**
+
+4.  **Średnia wieku nie ma znaczącego wpływu**
+
+5.  **Wyższy poziom edukacji sprzyja uniknięciu potencjalnego wysokiego ryzyka niewypłacalności**
+
+6.  **Znaczący wpływ ma stosunek średniej zapłaty do średniej wartości rachunku - im niższy, tym wyższa szansa na zakwalifikowanie klienta w obszar ryzyka**
+
+# Analiza skupień
+
+## Wstęp
+
+Przeprowadzona analiza miała na celu podział zbioru danych na grupy (klastry) przy użyciu różnych metod klasteryzacji, aby zidentyfikować, która z metod najlepiej dopasowuje się do struktury danych. Skupiliśmy się głównie na metodzie hierarchicznej z zastosowaniem metody k-średnich, k-medoids praz algorytmu Warda.
+
+## Krok1 - dobór zmiennych
+
+Załadowanie danych, sprawdzenie korelacji (\<0,9) i współczynnika zmienności(\>0,1)
+
+```{r echo=FALSE}
+
+library(readxl)
+dane_as<-read_excel("edited_default_clients.xlsx")
+dane_as
+dane_as[kolumny_do_standaryzacji] <- scale(dane_as[kolumny_do_standaryzacji])
+
+# obliczenie korelacji
+print(round(cor(dane_as),2))
+
+# Obliczanie współczynnika zmienności
+kolumny <- c("EDUCATION", "AGE", "MARRIAGE", "PAY_MEAN", "PAY_0", "LIMIT_BAL", "BILL_MEAN")
+wsp_zmiennosci <- function(x) {
+  return (sd(x, na.rm = TRUE) / mean(x, na.rm = TRUE) * 100)
+}
+
+round(sapply(dane_as[kolumny], wsp_zmiennosci),3)
+```
+
+Korelacja między zmiennymi i współczynnik zmienności spełniają wymagania.
+
+Następny krok to usunięcie wartości odstających:
+
+```{r}
+summary(dane_as)
+```
+
+Są wartości odstające w bill_mean i pay_mean, więc filtruję wszystkie kolumny, aby zostawić tylko wartości z modułem mniejszym lub równym 3
+
+```{r}
+# Zamiana wartości o module większym niż 3 na NA
+dane_as[kolumny_do_standaryzacji] <- as.data.frame(lapply(dane_as[kolumny_do_standaryzacji], function(x) ifelse(abs(x) > 3, NA, x)))
+
+summary(dane_as[kolumny_do_standaryzacji])
+
+# Usunięcie wierszy z wartościami NA
+dane_as <- na.omit(dane_as)
+dane_as$ID<-as.character(dane_as$ID)
+summary(dane_as[kolumny_do_standaryzacji])
+```
+
+Teraz są zmienne bez wartości odstających i zweryfikowane.
+
+## Krok 2 wybór klastrów- Metoda k-średnich
+
+```{r echo=FALSE}
+
+library(cluster)
+library(clusterCrit)
+library(factoextra)
+library(psych)
+
+dane_do_kmeans <- dane_as[kolumny_do_standaryzacji]
+
+
+```
+
+**Metoda łokcia:**
+
+```{r echo = FALSE}
+
+fviz_nbclust(dane_do_kmeans, kmeans, method = "wss") 
+```
+
+Wychodzi, że optymalna liczba klastrów to 9, ale drugą najlepszą liczbą klastrów jest 6
+
+**Współczynnik sylwetki:**
+
+```{r echo = FALSE}
+fviz_nbclust(dane_do_kmeans, kmeans, method = "silhouette") 
+```
+
+Tutaj także widzimy, że najlepsza liczba klastrów to 9.
+
+**Kryterium Calinskiego-Harabasza:**
+
+```{r echo = FALSE}
+
+for (k in 2:10) {
+  k_means_result <- kmeans(dane_do_kmeans, centers = k)
+  ch_index <- intCriteria(as.matrix(dane_do_kmeans), k_means_result$cluster, "Calinski_Harabasz")
+  print(paste("Liczba klastrów:", k, "Calinski-Harabasz Index:", ch_index))
+}
+```
+
+Według tego kryterium liczba klastrów 9 nie jest najlepsza, są lepsze przypisania klastrów, aby grupy wewnątrz siebie były podobne, a między sobą jak najbardziej rózne od siebie
+
+Biorąc pod uwagę wszystkie metody przyjmuje k=6, gdyż przy wyborze k=9 są trzy grupy o liczności n=2. Liczba klastrów = 6 według wyżej podanych metod doboru też jest dobra.
+
+## Przeprowadzenie analizy skupień metodą k-średnich:
+
+```{r echo = FALSE}
+k_means_result <- kmeans(dane_do_kmeans, centers =6)
+
+
+klastry <- k_means_result$cluster  # przypisanie klastrów dla każdej obserwacji
+
+# Dodanie kolumny z klastrami do danych
+
+dane_z_klastrami <- cbind(dane_do_kmeans, cluster = klastry)
+
+# Obliczenie statystyk opisowych dla każdego klastra
+desc_stats <- describeBy(dane_z_klastrami, group = dane_z_klastrami$cluster)
+
+# Obliczenie statystyk opisowych dla każdego klastra 2
+desc_stats <- describeBy(dane_z_klastrami[, -ncol(dane_z_klastrami)], group = dane_z_klastrami$cluster, mat = TRUE)
+
+# Przekształcenie wyników w formę ramki danych, gdzie każda zmienna ma jedną kolumnę na podsumowanie
+desc_summary <- as.data.frame(desc_stats)
+
+# Wyświetlenie podsumowania statystyk opisowych
+print(desc_summary)
+# Rysowanie wykresu klasterów 
+fviz_cluster(k_means_result, data = dane_do_kmeans, geom = "text", stand = FALSE, ellipse.type = "convex")
+```
+
+Grupa 1:
+
+Wartości EDUCATION1, AGE1 i PAY_MEAN1 mają umiarkowane odchylenie standardowe. Średnia w EDUCATION wynosi 0,54 (ważne - są to dane standaryzowane), co świadczy że klienci mają niższe wykształcenie od ogołu i znajdują się w trzecim kwantylu. Średnia AGE jest troszkę wyższa od ogołu - czyli klienci średnio mają więcej niż 37 lat. Średnia PAY_MEAN jest trochę niższa od ogołu - czyli klienci płacą średnio mniej niż 6200\$. W tej grupie są klienci, z których większośc zapłaciła na czas ostatni rachunek. podczas gdy MARRIAGE1 ma zerowe odchylenie standardowe, czyli wszyscy klienci w tej grupie są żonaci. Średnia w LIMIT BAL jest ujemna (-0.4), co wskazuje że klienci ci, mają niższy przyznany kredyt od ogołu (ok 180 000 \$) i wystawiony mają mniejszy rachunek do zapłaty, średnia ogółu to ok 23 800 dolarów.
+
+Grupa 2:
+
+Ta grupa jest jednorodna - brak dużych odchyleń standardowych. EDUCATION2 i AGE2 mają średnie wartości ujemne (-0.72 i -0.72)z umiarkowanym odchyleniem standardowym, co oznacza że mają duzo wyższy poziom edukacji i są młodsi od ogołu, których wartości średnie wynoszą odpowiednio: -0.02 i -0.01 . MARRIAGE2 wynosi (0.914) dla wszystkich klientów, czyli wszyscy klienci w tej grupie są singlami. PAY_MEAN2 ma umiarkowane odchylenie standardowe (0.460) i jej średnia wartośc sugeruje, że klienci w tej grupie płacą niższe rachunki.Wszyscy klienci mają zapłacili ostatni rachunek na czas. Mają także niższy poziom zadłuzenia i niższe rachunki do zapłaty od ogółu klientów.
+
+Grupa 3:
+
+Wartości EDUCATION3 i AGE3 mają wysokie wartości średnie i umiarkowane do wysokie odchylenie standardowe, co oznacza, że większość z klientów ukónczyło tylko szkołę średnią i w tej grupie jest najwiecęj takich klientów a ich wiek jest wyższy od ogółu. MARRIAGE3 mówi, że wszyscy klienci są w związkach.. PAY_MEAN3 ma najmniejsze odchylenie standardowe (0.104) w tej grupie. Jego średnią, mówi o tym, że w tej grupie klienci mają niższe średnie płatności, więkoszośc z nich ma opóznienia w płatności, ale mają niższy przyznany kredyt i niższy średni rachunek do zapłaty.
+
+Grupa 4:
+
+Wartości EDUCATION4 i AGE4 mają wyższe odchylenia standardowe, szczególnie EDUCATION4 (1.314), co mówi nam że ta grupa jest pod względem edukacji dośc zróżnicowana, a jej wartość jest zbliżona do średniej (1.6). Ze zmiennej AGE4 odczytuje, że w tej grupie klienci są starsi od ogółu MARRIAGE4 jest jednorodna (-1.073), czyli wszyscy klienci są żonaci. PAY_MEAN4 ma niskie odchylenie standardowe (0.287) i wynik jest zbliżony do średniej klientów - ok 6200\$. W tej grupie wszyscy mają opóznienie w zapłącie 1 miesiąć, trochę wyższy przyznany kredyt od ogółu i najwyższe rachunki do zapłaty ze wszystkich grup.
+
+Grupa 5:
+
+Grupa ta składa się z klientów, którzy są singlami, mają wykształcenie niższe od ogółu i są dużo młodsi. Płacą niższe rachunki od ogółu i mają średnio większe zaległości. Ich limit kredytu jest niższy od ogółu a średnie rachunku zbliżone.
+
+Grupa 6:
+
+Wartości AGE6, i PAY_MEAN6 mają wyższe odchylenie standardowe, zwłaszcza PAY_MEAN6 (1.042), co oznacza różnorodność w tej grupie pod względem tych cech. MARRIAGE6 jest jedyną zmienną w tej grupie, która pokazuje wysokie odchylenie standardowe (1.047), co mówi że grupa ta składa się w miarę po równo ze singlów i żonatych. W tej grupie jest przewaga osób o średnim wykształceniu. Ta grupa ludzi zalicza się raczej do osób z niskim ryzykiem, gdyż mają płatności średnio płacone na czas, mniejszy rachunek do zapłaty, a płacą więcej niż ogół pomimo przyznanego wysokiego limitu kredytu w stosunku do ogółu
+
+**Podsumowanie**
+
+Analizując wykres i statystyki wynika z tego, że grupy wewnątrz siebie nie różnią się znacząco (odchylenia standardowe poszczególnych cech rzadko przekraczają 1), a pomiędzy sobą są znaczne róznice, także k=6 jest odpowiednie.
+
+## Klasteryzacja k-medoid za pomocą algorytmu PAM
+
+```{r echo = FALSE}
+k<-6
+
+# Przeprowadzenie PCA
+pca_result <- prcomp(dane_do_kmeans, center = TRUE, scale. = TRUE)
+
+# Wybieranie pierwszych dwóch składowych PCA
+pca_data <- as.data.frame(pca_result$x[, 1:2])
+pca_data$Cluster <- as.factor(k_means_result$cluster)
+# Upewnij się, że PC1 i PC2 są w ramce danych
+dane_as$PC1 <- pca_result$x[, 1]
+dane_as$PC2 <- pca_result$x[, 2]
+
+# Przeprowadzenie klasteryzacji k-medoids
+kmedoids_result <- pam(dane_as[, c("PC1", "PC2")], k)
+
+
+# Dodanie wyników klasteryzacji do oryginalnej ramki danych
+dane_as$k_medoid <- kmedoids_result$clustering
+
+# Krok 4: Wizualizacja
+
+# Rysowanie wykresu klasterów k-medoids
+fviz_cluster(kmedoids_result, data = dane_do_kmeans[, c("PC1", "PC2")],
+             geom = "text",            
+             stand = FALSE,             # Bez standaryzacji
+             ellipse.type = "convex",   # Typ elipsy
+             ggtheme = theme_minimal(),  # Minimalistyczny motyw
+             show.clust.cent = TRUE) # Pokaż centroidy (medoidy))    
+
+#k=9 zawiera grupe o dwoch obserwacjach
+
+```
+
+Ta metoda bardzo dobrze się sprawdza do tego zbioru danych. Klastry nie nachodzą na siebie, nie są zbyt mało liczne i grupy są odległe od siebie, czyli różnorodne. Widać pewne podobieństwa do poprzedniej metody, ale ta metoda sprawdziła się tutaj dużo lepiej.
+
+## Hierarchiczna klasteryzacja metodą Warda z zastosowaniem macierzy odległości Euklidesowej
+
+```{r echo = FALSE}
+# Obliczenie macierzy odległości (Euklidesowej)
+dist_euclidean <- dist(dane_do_kmeans, method = "euclidean")
+
+#Przeprowadzenie klasteryzacji hierarchicznej metodą Warda
+ward_euclidean <- hclust(dist_euclidean, method="ward.D2")
+```
+
+### Analiza indeksów ocen jakości klasyfikacji:
+
+```{r echo=FALSE}
+
+library(clusterSim)
+index <- data.frame(k=0, G1=0, G2=0, G3=0, S=0)
+for(i in 2:10){
+  cluster <- cutree(ward_euclidean, k=i)
+  index[i-1, "k"]  <- i
+  index[i-1, "G1"] <- index.G1(dane_do_kmeans, cluster)
+  index[i-1, "G2"] <- index.G2(dist_euclidean, cluster)
+  index[i-1, "G3"] <- index.G3(dist_euclidean, cluster)
+  index[i-1, "S"] <- index.S(dist_euclidean, cluster)
+}
+
+par(mfrow=c(2,2))
+plot(x=index$k, y=index$G1, main="G1", type="b", xlab="", ylab="")
+plot(x=index$k, y=index$G2, main="G2", type="b", xlab="", ylab="")
+plot(x=index$k, y=index$G3, main="G3", type="b", xlab="", ylab="")
+plot(x=index$k, y=index$S, main="S", type="b", xlab="", ylab="")
+par(mfrow=c(1,1))
+cutree(ward_euclidean, k=6)
+```
+
+**Wykres G1:**
+
+-   Wykres pokazuje wzrost wartości indeksu od około 13.0 przy 2 klasach do około 14.5 przy 10 klasach. Oznacza to, że wartość indeksu G1 rośnie wraz ze zwiększającą się liczbą klas.
+-   Może to oznaczać, że klasyfikacja staje się bardziej dokładna lub lepiej dopasowana przy większej liczbie klas.
+
+**Wykres G2:**
+
+-   Wykres przedstawia wartość indeksu, która zaczyna się od około 0.60 przy 2 klasach, a następnie rośnie do około 0.90 przy 10 klasach.
+
+-   Jest to wyraźny trend wzrostowy, co sugeruje, że jakość klasyfikacji (według indeksu G2) poprawia się wraz ze wzrostem liczby klas.
+
+**Wykres G3:**
+
+-   Wykres dla indeksu G3 pokazuje początkowy spadek wartości od około 0.50 przy 2 klasach do około 0.44 przy 4 klasach, a następnie wartości fluktuują między 0.44 a 0.48, kończąc na około 0.46 przy 10 klasach.
+
+-   Wartości indeksu G3 nie wykazują wyraźnego trendu wzrostowego ani spadkowego.
+
+**Wykres S:**
+
+-   Wartość indeksu S zaczyna się od około 0.24 przy 2 klasach i rośnie do około 0.30 przy 10 klasach.
+
+-   Jest to również trend wzrostowy, choć mniej stromy niż w przypadku indeksów G1 i G2.
+
+### Wyciągnięcie liczby kroków wiązania
+
+```{r echo = FALSE}
+
+num_steps <- length(ward_euclidean$height)
+# Tworzenie wykresu odległości wiązania
+plot(x = 1:num_steps, y = ward_euclidean$height, type = "S", 
+     xlab = "Krok", ylab = "Odległość",
+     main = "Wykres odległości wiązania względem etapów wiązania")
+
+
+
+```
+
+**Interpretacja klastrów**:
+
+Wynika z tego, że 30 klientów jest zblizonych do siebie, póżniej zaczynają się różnice między nimi, gdyż po 30. kroku zaczynają się większe różnice w odległościach wiązania. Oznacza to, że w późniejszych krokach łączone są klastry, które są bardziej różnorodne, a różnice między nimi są większe. W końcowych etapach (ostatnie 10-15 kroków) odległości rosną gwałtownie, co sugeruje, że klienci łączeni na tym etapie są znacznie mniej podobni.
+
+```{r echo =FALSE}
+# Wizualizacja dendrogramu
+plot(ward_euclidean, main = "Dendrogram - metoda Warda", xlab = "numer obserwacji", sub = "", cex = 0.9)
+# Dodanie prostokątów wokół 6 klastrów
+rect.hclust(ward_euclidean, k = 6, border = "red")
+
+# Przydzielanie punktów do klastrów
+clusters <- cutree(ward_euclidean, k = 6)
+
+# Dodanie wyników klasteryzacji do danych
+dane_do_kmeans$cluster <- clusters
+dane_as$Ward<-clusters
+# Obliczanie statystyk opisowych dla każdej zmiennej w ramach klastrów
+statystyki_klastry <- aggregate(. ~ cluster, data = dane_do_kmeans, FUN = function(x) c(mean = mean(x), sd = sd(x), min = min(x), max = max(x)))
+
+# Wyświetlanie statystyk opisowych
+print(statystyki_klastry)
+
+
+```
+
+### Wyjaśnienie głównych elementów dendrogramu:
+
+1.  **Oś Y - Wysokość (Height)**:
+
+    -   Wysokość na osi Y reprezentuje odległość lub miarę niepodobieństwa, przy której klastry są łączone. Im wyżej na dendrogramie, tym większa jest odległość między klastrami.
+
+2.  **Oś X - ID**:
+
+    -   ID na osi X to identyfikatory poszczególnych klientów lub punktów danych. Na dole dendrogramu każdy punkt reprezentuje pojedynczego klienta.
+
+Z dendrogramu wynika, że możemy rozważyć cięcie dendrogramu na różnych wysokościach, aby uzyskać różne liczby klastrów. Najlepsze jest cięcie na wysokości około 6-8, gdyż może dać nam kilka większych, zróżnicowanych klastrów, które są wciąż dość jednorodne wewnętrznie. Także warte uwagi jest cięcie na wysokości 4, które może dać liczbę bardziej jednorodnych klastrów. Sugerowana przeze mnie liczba klastrów na podstawie tego dendrogramu to 6. Wyniki z tego dendrogramu są zbliżone najbardziej do metody kmedoid (korelacja 65%)
+
+Oto przypisania klastrów do klientów:
+
+```{r echo = FALSE}
+library(DT)
+datatable(dane_as)
+cor(dane_as$k_medoid, dane_as$Ward)
+```
+
+# Przykład wizualizacji klastrów na wykresie rozrzutu
+
+```{r echo = FALSE}
+plot(dane_bez_odstajacych$LIMIT_BAL, dane_bez_odstajacych$PAY_MEAN, col = dane_do_kmeans$cluster, pch = 19, 
+     main = "Wizualizacja klastrów", xlab = "LIMIT_BAL", ylab = "PAY_MEAN")
+
+# Dodanie legendy
+legend("topright", legend = unique(dane_do_kmeans$cluster), col = unique(dane_do_kmeans$cluster), pch = 19)
+
+```
+
+[Pod względem tych cech grupy charakteryzują się:]{.underline}
+
+1.   Grupa 1: W większości wysokie przyznane kredyty, ale dośc wysokie średnie spłaty miesięczne
+
+2.   Grupa 2: Niższe kredyty do spłaty - do 200 000\$, przy czym też mniejsze średnie spłaty miesięczne
+
+3.   Grupa 3: Wysokie kredyty i wysokie spłaty miesięczne
+
+4.   Grupa 4: Kredyty do ok 200 000 dolarów (tylko jedna osoba ma 300 000 dolarów), przy czym też mniejsze średnie spłaty miesięczne podobnie jak grupa 2
+
+5.  Grupa 5: Bardzo niskie kredyty do 50 000\$, ale dwie osoby mają wybijają się ze schematu z kredytem 200 000 i ponad 300 000 dolarów, niskie średnie spłaty
+
+6.   Grupa 6: Kredyty do 300 000 dolarów, z charakterystyczną zależnością, że im wyższe kredyt, tym wyższA średnia spłata rachunku miesięcznie
+
+```{r echo = FALSE}
+library(vcd)
+grupa <- factor(dane_do_kmeans$cluster)
+mosaic(~ PAY_0 + EDUCATION | grupa, data = dane_bez_odstajacych, 
+       main = "Wizualizacja klastrów")
+
+```
+
+[Pod względem tych cech grupy charakteryzują się:]{.underline}
+
+1\. Grupa 1: Składa się z większości osób, które płacą na czas i mają ukończoną szkołę podyplomową
+
+2\. Grupa 2: Klienci płacą zwykle na czas i mają w wi,ększości wykształcenie uniwesyteckie
+
+3\. Grupa 3: W większości płacą na czas, ale mają różne wykształcenia
+
+4\. Grupa 4: W zdecydowanej większości płacą na czas i mają wykształcenie wyższe niż średnie
+
+5\. Grupa 5: Mają najwięcej opóźnien 2-miesięcznych, w następnej kolejności 1-miesięczne i są zróżnicowani pod względem wykształcenia
+
+6\. Grupa 6: Składa się z dużej ilości osób opóznieniami 2-miesięcznymi, a w następnej kolejności z opóźnieniami 1,3-miesięcznymi
+
+```{r echo = FALSE}
+plot(dane_bez_odstajacych$AGE, dane_bez_odstajacych$BILL_MEAN, col = dane_do_kmeans$cluster, pch = 19, 
+     main = "Wizualizacja klastrów", xlab = "AGE", ylab = "BILL_MEAN")
+
+# Dodanie legendy
+legend("topright", legend = unique(dane_do_kmeans$cluster), col = unique(dane_do_kmeans$cluster), pch = 19)
+```
+
+[Pod względem tych cech grupy charakteryzują się:]{.underline}
+
+1.  Grupa 1: osobami starszymi niż 34 lata a młodszymi niż 52 z niskimi rachunkami
+2.  Grupa 2: przedziałem wiekowym 28-47 lat z niskimi rachunkami
+3.  Grupa 3: najmłodszymi klientami (maks 32 lat) i trochę większe rachunki do zapłacenia niż poprzednie grupy
+4.  Grupa 4: przedziałem wiekowym 26-40 lat i niskimi rachunkami
+5.  Grupa 5: przedziałem wiekowym 24-37 lat i rachunkami wyższymi niż poprzednie grupy
+6.  Grupa 6: osobami zawierającymi najwyższe rachunki do zapłaty i najwyższą średnią wieku
+
+```{r echo =FALSE}
+# Wizualizacja dendrogramu
+plot(ward_euclidean,labels=dane_as$ID, main = "Dendrogram - metoda Warda", xlab = "ID", sub = "", cex = 0.9)
+# Dodanie prostokątów wokół 6 klastrów
+rect.hclust(ward_euclidean, k = 6, border = "red")
+
+# Przydzielanie punktów do klastrów
+clusters <- cutree(ward_euclidean, k = 6)
+
+
+```
+
+Tutaj po ID możemy porównać z porządkowanie liniowym, że 1 widoczna grupa to najbardziej zagrożeni niewypłacalnością klienci, reszta grup jest przydzielona według innych cech.
+
+## Podsumowanie analizy skupień:
+
+**Do obecnego zbioru danych najgorzej sprawdziła się metoda k-średnich spośród podanych, Chociaż metoda k-średnich również podzieliła dane na 6 klastrów, wyniki były mniej zadowalające w porównaniu do metody Warda czy k-medoid. Klasyfikacja nie była tak wyraźna, a interpretacja klastrów trudniejsza. W oparciu o przeprowadzoną analizę, metoda k-medoid i Warda była bardziej odpowiednia do analizy tego zbioru danych.**
