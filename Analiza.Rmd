@@ -1,7 +1,7 @@
 ---
 title: "Analiza niewypłacalności klientów"
 output: html_document
-author: "Sylvia Romek, IiE nst, 418348"
+author: "Sylvia Romek"
 ---
 
 ```{r setup, include=FALSE}
